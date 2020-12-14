@@ -1,0 +1,638 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Nov 25 09:36:48 2020
+
+@author: ShinFuChen
+"""
+from datetime import *
+import numpy as np
+import pandas as pd
+import configparser
+import time
+import os
+import statistics as stats
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.externals import joblib
+
+# Setup
+# 注意 改成5分鐘讀一次
+np.set_printoptions(suppress=True) #以小數點顯示
+os.getcwd()
+path= "output"
+#os.mkdir(path) # 建立目錄
+#ini檔------------------------------------------------------------------------------------------------
+conf = configparser.ConfigParser()
+conf.read("Setting.ini")
+
+#Condition Setting
+#m_std  = float(conf["Condition Setting"]["std"])
+
+# read hh, h,
+
+
+# Data preprocessing
+#將'????'資料設為遺失值
+file = 'CDA_data.csv'
+data = pd.read_csv(open(file), header=0) 
+data.where(data != '????', np.nan, inplace=True)
+data.to_csv(file,index = False)#輸出檔案
+#重新讀取資料
+data = pd.read_csv(open(file), header=0) 
+data['Date'] = pd.to_datetime(data['Date'],format='%Y/%m/%d %H:%M') #時間格式轉換
+## 時間處理(參考智一)
+#判斷時間間格
+x = []
+for i in range(1,len(data)):
+    x = np.append(x,(data.loc[i,'Date'] - data.loc[i-1,'Date']).seconds)
+
+timedelta = int(stats.mode(x)) #單位:sec
+#補齊缺少的時間
+len_t_NA = 0
+if len(np.unique(x))>1: #若時間間格值>1種，則表示時間資料有缺
+    #找出缺少資料的時間
+    t_all = pd.date_range(data.loc[0,'Date'],data.loc[len(data)-1,'Date'], freq= str(timedelta) +'s')
+    t_NA = pd.DataFrame(data = list(set(t_all).difference(set(data['Date']))), columns = ['Date'])
+    len_t_NA = len(t_NA)
+    col_NA = pd.DataFrame(columns = data.columns[1:],index = range(len_t_NA))
+    data_NA = pd.concat([t_NA, col_NA], axis = 1)
+    data = pd.concat([data, data_NA])
+    data = data.sort_values(by='Date').reset_index(drop=True) #依時間重新排序
+#
+    
+
+## 預測部分
+    
+### 讀取標準差索引
+std_dict='CDA_std.csv'
+CDA_std=pd.read_csv(open(std_dict),header=0)  
+### 讀取控制值HH H(讀取control檔中的參數)
+### 建立預測索引    
+
+df_ls=[]
+#for i in range(1,16):
+#    n = "CDA"+ str(i).zfill(2)
+#    df_ls.append(n)
+#empty1="CDA"+ str(8).zfill(2)
+#empty2="CDA"+ str(9).zfill(2)
+#
+#df_ls.remove(empty1)
+#df_ls.remove(empty2)
+n_list=["01","02","03","04","05","06","07","10","11","12","13","14","15"]
+
+#讀ini
+#alarm_model= control[1]
+# if model = s or h 
+file = "control.csv"
+control = pd.read_csv(open(file), header=0) 
+
+s=  control.iloc[0,0]
+hh = control.iloc[0,12]
+#預測部分
+##記得指定把電流放在第幾順位
+##設定poly 的維度
+## 要把 設定是s 或 h 放進去
+
+poly_reg=PolynomialFeatures(degree=2)
+for n in n_list:
+    predict_df= data.filter(regex=("Date|"+ n)).copy()
+    # y=2
+    if int(n)< 5:
+        pr_model_lowV_1=joblib.load('CDA'+n+'_pr_model_LVT.pkl') 
+        pr_model_High_1=joblib.load('CDA'+n+'_pr_model_HVT.pkl')
+        #計算是否最近的10筆資料MAT都大於100,是的話代表運轉中
+        for j in range(-5,0,1):
+            if predict_df.iloc[-10+j:,1].min() > 100:
+            #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_FIT','CDA'+n+'_IOT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_IAT','CDA'+n+'_IVT','CDA'+n+'_SPT']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=pr_model_lowV_1.predict(poly_reg.fit_transform(X))[0,0]
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):
+                    #從倒數第5筆開始 #HVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]				
+                    y=predict_df['CDA'+n+'_HVT']
+                    y2=y.get(len(y)+i)
+                    analog_2=pr_model_High_1.predict(poly_reg.fit_transform(X))[0,0]
+                    analog.append(analog_2)
+                    current.append(y2)
+                    CDA.append('CDA'+n+'_HVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					     #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					#產出預警alarm call
+                        ans['alarm line'] = ans['analog']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    file = 	"output\CDA_"+n+"_HVT_result.csv"
+                    ans.to_csv(file,index = False)	
+					
+            elif predict_df.iloc[-10+j:,1].min() < 100:
+                #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_FIT','CDA'+n+'_IOT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_IAT','CDA'+n+'_IVT','CDA'+n+'_SPT']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+            for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                record_time=predict_df[["Date"]]
+                running_time=record_time.iloc[[i]]
+                X=X1.iloc[[i]]
+                y=predict_df['CDA'+n+'_LVT']
+                y1=y.get(len(y)+i)
+                 #模擬震動值
+                analog_1=333
+                #將值併入結果的list
+                analog.append(analog_1)
+                current.append(y1)
+                CDA.append('CDA'+n+'_LVT')
+                date_ls.append(running_time)
+                CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                if alarm_model == "s":
+                    ans = pd.merge(CDA_std,CDA_output)
+                    #產出預警alarm call
+                    ans['alarm line'] = ans['model value']+s*ans['std']
+                    ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                elif alarm_model =="hh":
+                    ans = pd.merge(CDA_std,CDA_output)
+                    #產出預警alarm call
+                    ans['alarm line'] = ans['model value']+hh
+                    ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                file = 	"output\CDA_"+n+"_LVT_result.csv"
+                ans.to_csv(file,index = False)
+            analog=[] #放預估值
+            current=[]#放真實值
+            date_ls=[]#放時間
+            VT_ls=[]
+            CDA=[]
+            for i in range(-5,0,1):
+                #從倒數第5筆開始 #HVT
+                record_time=predict_df[["Date"]]
+                running_time=record_time.iloc[[i]]
+                X=X1.iloc[[i]]				
+                y=predict_df['CDA'+n+'_HVT']
+                y2=y.get(len(y)+i)
+                analog_2=333
+                analog.append(analog_2)
+                current.append(y2)
+                CDA.append('CDA'+n+'_HVT')
+                date_ls.append(running_time)
+                CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                if alarm_model == "s":
+                    ans = pd.merge(CDA_std,CDA_output)
+					     #產出預警alarm call
+                    ans['alarm line'] = ans['model value']+s*ans['std']
+                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                elif alarm_model =="hh":
+                    ans = pd.merge(CDA_std,CDA_output)
+					#產出預警alarm call
+                    ans['alarm line'] = ans['analog']+hh
+                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                file = 	"output\CDA_"+n+"_HVT_result.csv"
+                ans.to_csv(file,index = False)
+        
+    elif int(n)> 4 and int(n)< 8 :# y=3
+        pr_model_lowV_1=joblib.load('CDA'+n+'_pr_model_LVT_1.pkl')
+        pr_model_lowV_2=joblib.load('CDA'+n+'_pr_model_LVT_2.pkl') 
+        pr_model_High_1=joblib.load('CDA'+n+'_pr_model_HVT.pkl')
+        for j in range(-5,0,1):
+            if predict_df.iloc[-10+j:,1].min() > 100:
+            #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_SPT','CDA'+n+'_FIT','CDA'+n+'_IAT','CDA'+n+'_IOT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_SMT1','CDA'+n+'_SMT2','CDA'+n+'_SMT3']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT_1']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=pr_model_lowV_1.predict(poly_reg.fit_transform(X))[0,0]
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT_1')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT_2']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=pr_model_lowV_1.predict(poly_reg.fit_transform(X))[0,0]
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT_2')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):
+                    #從倒數第5筆開始 #HVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]				
+                    y=predict_df['CDA'+n+'_HVT']
+                    y2=y.get(len(y)+i)
+                    analog_2=pr_model_High_1.predict(poly_reg.fit_transform(X))[0,0]
+                    analog.append(analog_2)
+                    current.append(y2)
+                    CDA.append('CDA'+n+'_HVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					     #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					#產出預警alarm call
+                        ans['alarm line'] = ans['analog']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    file = 	"output\CDA_"+n+"_HVT_result.csv"
+                    ans.to_csv(file,index = False)	
+					
+            elif predict_df.iloc[-10+j:,1].min() < 100:
+                #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_SPT','CDA'+n+'_FIT','CDA'+n+'_IAT','CDA'+n+'_IOT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_SMT1','CDA'+n+'_SMT2','CDA'+n+'_SMT3']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT_1']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=pr_model_lowV_1.predict(poly_reg.fit_transform(X))[0,0]
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT_1')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT_2']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=pr_model_lowV_1.predict(poly_reg.fit_transform(X))[0,0]
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT_2')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+            analog=[] #放預估值
+            current=[]#放真實值
+            date_ls=[]#放時間
+            VT_ls=[]
+            CDA=[]
+            for i in range(-5,0,1):
+                #從倒數第5筆開始 #HVT
+                record_time=predict_df[["Date"]]
+                running_time=record_time.iloc[[i]]
+                X=X1.iloc[[i]]				
+                y=predict_df['CDA'+n+'_HVT']
+                y2=y.get(len(y)+i)
+                analog_2=333
+                analog.append(analog_2)
+                current.append(y2)
+                CDA.append('CDA'+n+'_HVT')
+                date_ls.append(running_time)
+                CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                if alarm_model == "s":
+                    ans = pd.merge(CDA_std,CDA_output)
+					     #產出預警alarm call
+                    ans['alarm line'] = ans['model value']+s*ans['std']
+                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                elif alarm_model =="hh":
+                    ans = pd.merge(CDA_std,CDA_output)
+					#產出預警alarm call
+                    ans['alarm line'] = ans['analog']+hh
+                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                file = 	"output\CDA_"+n+"_HVT_result.csv"
+                ans.to_csv(file,index = False)
+    elif int(n) > 10 and int(n)< 15 :
+        pr_model_lowV_1=joblib.load('CDA'+n+'_pr_model_LVT.pkl') 
+        
+        for j in range(-5,0,1):
+            if predict_df.iloc[-10+j:,1].min() > 100:
+            #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_SMT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_IOT']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=pr_model_lowV_1.predict(poly_reg.fit_transform(X))[0,0]
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+					
+            elif predict_df.iloc[-10+j:,1].min() < 100:
+                #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_SMT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_IOT']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+            for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                record_time=predict_df[["Date"]]
+                running_time=record_time.iloc[[i]]
+                X=X1.iloc[[i]]
+                y=predict_df['CDA'+n+'_LVT']
+                y1=y.get(len(y)+i)
+                 #模擬震動值
+                analog_1=333
+                #將值併入結果的list
+                analog.append(analog_1)
+                current.append(y1)
+                CDA.append('CDA'+n+'_LVT')
+                date_ls.append(running_time)
+                CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                if alarm_model == "s":
+                    ans = pd.merge(CDA_std,CDA_output)
+                    #產出預警alarm call
+                    ans['alarm line'] = ans['model value']+s*ans['std']
+                    ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                elif alarm_model =="hh":
+                    ans = pd.merge(CDA_std,CDA_output)
+                    #產出預警alarm call
+                    ans['alarm line'] = ans['model value']+hh
+                    ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                file = 	"output\CDA_"+n+"_LVT_result.csv"
+                ans.to_csv(file,index = False)
+
+    else:
+        pr_model_lowV_1=joblib.load('CDA'+n+'_pr_model_LVT.pkl') 
+        pr_model_High_1=joblib.load('CDA'+n+'_pr_model_HVT.pkl')
+        for j in range(-5,0,1):
+            if predict_df.iloc[-10+j:,1].min() > 100:
+                #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_SMT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_IOT','CDA'+n+'_OPT','CDA'+n+'_FIT','CDA'+n+'_SMT']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT']
+                    y1=y.get(len(y)+i)
+                    #模擬震動值
+                    analog_1=pr_model_lowV_1.predict(poly_reg.fit_transform(X))[0,0]
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+                    analog=[] #放預估值
+                    current=[]#放真實值
+                    date_ls=[]#放時間
+                    VT_ls=[]
+                    CDA=[]
+                for i in range(-5,0,1):
+                    #從倒數第5筆開始 #HVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]				
+                    y=predict_df['CDA'+n+'_HVT']
+                    y2=y.get(len(y)+i)
+                    analog_2=pr_model_High_1.predict(poly_reg.fit_transform(X))[0,0]
+                    analog.append(analog_2)
+                    current.append(y2)
+                    CDA.append('CDA'+n+'_HVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+        					    #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+        					#產出預警alarm call
+                        ans['alarm line'] = ans['analog']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    file = 	"output\CDA_"+n+"_HVT_result.csv"
+                    ans.to_csv(file,index = False)	
+    					
+            elif predict_df.iloc[-10+j:,1].min() < 100:
+                #設定讀取的特徵
+                X1= predict_df[['CDA'+n+'_MAT','CDA'+n+'_SMT','CDA'+n+'_OMT','CDA'+n+'_IMT','CDA'+n+'_IOT','CDA'+n+'_OPT','CDA'+n+'_FIT','CDA'+n+'_SMT']]
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                #VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):
+                    #從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=333
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    file = 	"output\CDA_"+n+"_LVT_result.csv"
+                    ans.to_csv(file,index = False)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):
+                    #從倒數第5筆開始 #HVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]				
+                    y=predict_df['CDA'+n+'_HVT']
+                    y2=y.get(len(y)+i)
+                    analog_2=333
+                    analog.append(analog_2)
+                    current.append(y2)
+                    CDA.append('CDA'+n+'_HVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					     #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    elif alarm_model =="hh":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					#產出預警alarm call
+                        ans['alarm line'] = ans['analog']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    file = 	"output\CDA_"+n+"_HVT_result.csv"
+                    ans.to_csv(file,index = False)
