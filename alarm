@@ -25,8 +25,7 @@ path= "output"
 conf = configparser.ConfigParser()
 conf.read("Setting.ini")
 
-#Condition Setting
-#m_std  = float(conf["Condition Setting"]["std"])
+alarm_model  = str(conf["model"]["model"])
 
 # read hh, h,
 
@@ -87,7 +86,7 @@ file = "control.csv"
 control = pd.read_csv(open(file), header=0) 
 
 s=  control.iloc[0,0]
-hh = control.iloc[0,12]
+#hh = control.iloc[0,12]
 #預測部分
 ##記得指定把電流放在第幾順位
 ##設定poly 的維度
@@ -129,13 +128,14 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT1_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    file = 	"output\CDA_"+n+"_LVT_result.csv"
-                    ans.to_csv(file,index = False)
+                file = 	"output\CDA_"+n+"_LVT_result.csv"
+                ans.to_csv(file,index = False)
                 analog=[] #放預估值
                 current=[]#放真實值
                 date_ls=[]#放時間
@@ -159,13 +159,14 @@ for n in n_list:
     					     #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
     					#產出預警alarm call
+                        hh=control[['CDA'+n+"_HVT_HH_value"]]
                         ans['alarm line'] = ans['analog']+hh
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    file = 	"output\CDA_"+n+"_HVT_result.csv"
-                    ans.to_csv(file,index = False)	
+                file = 	"output\CDA_"+n+"_HVT_result.csv"
+                ans.to_csv(file,index = False)	
 					
             elif predict_df.iloc[-10+j:,1].min() < 100:
                 #設定讀取的特徵
@@ -175,60 +176,62 @@ for n in n_list:
                 date_ls=[]#放時間
                 #VT_ls=[]
                 CDA=[]
-            for i in range(-5,0,1):#從倒數第5筆開始 #LVT
-                record_time=predict_df[["Date"]]
-                running_time=record_time.iloc[[i]]
-                X=X1.iloc[[i]]
-                y=predict_df['CDA'+n+'_LVT']
-                y1=y.get(len(y)+i)
-                 #模擬震動值
-                analog_1=333
-                #將值併入結果的list
-                analog.append(analog_1)
-                current.append(y1)
-                CDA.append('CDA'+n+'_LVT')
-                date_ls.append(running_time)
-                CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
-                if alarm_model == "s":
-                    ans = pd.merge(CDA_std,CDA_output)
-                    #產出預警alarm call
-                    ans['alarm line'] = ans['model value']+s*ans['std']
-                    ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                elif alarm_model =="hh":
-                    ans = pd.merge(CDA_std,CDA_output)
-                    #產出預警alarm call
-                    ans['alarm line'] = ans['model value']+hh
-                    ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                for i in range(-5,0,1):#從倒數第5筆開始 #LVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]
+                    y=predict_df['CDA'+n+'_LVT']
+                    y1=y.get(len(y)+i)
+                     #模擬震動值
+                    analog_1=333
+                    #將值併入結果的list
+                    analog.append(analog_1)
+                    current.append(y1)
+                    CDA.append('CDA'+n+'_LVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
+                    elif alarm_model =="h":
+                        ans = pd.merge(CDA_std,CDA_output)
+                        #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT1_HH_value"]]
+                        ans['alarm line'] = ans['model value']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
                 file = 	"output\CDA_"+n+"_LVT_result.csv"
                 ans.to_csv(file,index = False)
-            analog=[] #放預估值
-            current=[]#放真實值
-            date_ls=[]#放時間
-            VT_ls=[]
-            CDA=[]
-            for i in range(-5,0,1):
-                #從倒數第5筆開始 #HVT
-                record_time=predict_df[["Date"]]
-                running_time=record_time.iloc[[i]]
-                X=X1.iloc[[i]]				
-                y=predict_df['CDA'+n+'_HVT']
-                y2=y.get(len(y)+i)
-                analog_2=333
-                analog.append(analog_2)
-                current.append(y2)
-                CDA.append('CDA'+n+'_HVT')
-                date_ls.append(running_time)
-                CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
-                if alarm_model == "s":
-                    ans = pd.merge(CDA_std,CDA_output)
-					     #產出預警alarm call
-                    ans['alarm line'] = ans['model value']+s*ans['std']
-                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                elif alarm_model =="hh":
-                    ans = pd.merge(CDA_std,CDA_output)
-					#產出預警alarm call
-                    ans['alarm line'] = ans['analog']+hh
-                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):
+                    #從倒數第5筆開始 #HVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]				
+                    y=predict_df['CDA'+n+'_HVT']
+                    y2=y.get(len(y)+i)
+                    analog_2=333
+                    analog.append(analog_2)
+                    current.append(y2)
+                    CDA.append('CDA'+n+'_HVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					     #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    elif alarm_model =="h":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					#產出預警alarm call
+                        hh=control[['CDA'+n+"_HVT_HH_value"]]
+                        ans['alarm line'] = ans['analog']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
                 file = 	"output\CDA_"+n+"_HVT_result.csv"
                 ans.to_csv(file,index = False)
         
@@ -264,13 +267,14 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT1_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    file = 	"output\CDA_"+n+"_LVT_result.csv"
-                    ans.to_csv(file,index = False)
+                file = 	"output\CDA_"+n+"_LVT_1_result.csv"
+                ans.to_csv(file,index = False)
                 analog=[] #放預估值
                 current=[]#放真實值
                 date_ls=[]#放時間
@@ -295,13 +299,14 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT2_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    file = 	"output\CDA_"+n+"_LVT_result.csv"
-                    ans.to_csv(file,index = False)
+                file = 	"output\CDA_"+n+"_LVT_2_result.csv"
+                ans.to_csv(file,index = False)
                 analog=[] #放預估值
                 current=[]#放真實值
                 date_ls=[]#放時間
@@ -325,13 +330,14 @@ for n in n_list:
     					     #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
-    					#產出預警alarm call
+            				#產出預警alarm call
+                        hh=control[['CDA'+n+"_HVT_HH_value"]]
                         ans['alarm line'] = ans['analog']+hh
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    file = 	"output\CDA_"+n+"_HVT_result.csv"
-                    ans.to_csv(file,index = False)	
+                file = 	"output\CDA_"+n+"_HVT_result.csv"
+                ans.to_csv(file,index = False)	
 					
             elif predict_df.iloc[-10+j:,1].min() < 100:
                 #設定讀取的特徵
@@ -360,13 +366,14 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT1_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    file = 	"output\CDA_"+n+"_LVT_result.csv"
-                    ans.to_csv(file,index = False)
+                file = 	"output\CDA_"+n+"_LVT_1_result.csv"
+                ans.to_csv(file,index = False)
                 analog=[] #放預估值
                 current=[]#放真實值
                 date_ls=[]#放時間
@@ -391,41 +398,43 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT2_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    file = 	"output\CDA_"+n+"_LVT_result.csv"
-                    ans.to_csv(file,index = False)
-            analog=[] #放預估值
-            current=[]#放真實值
-            date_ls=[]#放時間
-            VT_ls=[]
-            CDA=[]
-            for i in range(-5,0,1):
-                #從倒數第5筆開始 #HVT
-                record_time=predict_df[["Date"]]
-                running_time=record_time.iloc[[i]]
-                X=X1.iloc[[i]]				
-                y=predict_df['CDA'+n+'_HVT']
-                y2=y.get(len(y)+i)
-                analog_2=333
-                analog.append(analog_2)
-                current.append(y2)
-                CDA.append('CDA'+n+'_HVT')
-                date_ls.append(running_time)
-                CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
-                if alarm_model == "s":
-                    ans = pd.merge(CDA_std,CDA_output)
-					     #產出預警alarm call
-                    ans['alarm line'] = ans['model value']+s*ans['std']
-                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                elif alarm_model =="hh":
-                    ans = pd.merge(CDA_std,CDA_output)
-					#產出預警alarm call
-                    ans['alarm line'] = ans['analog']+hh
-                    ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                file = 	"output\CDA_"+n+"_LVT_2_result.csv"
+                ans.to_csv(file,index = False)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                VT_ls=[]
+                CDA=[]
+                for i in range(-5,0,1):
+                    #從倒數第5筆開始 #HVT
+                    record_time=predict_df[["Date"]]
+                    running_time=record_time.iloc[[i]]
+                    X=X1.iloc[[i]]				
+                    y=predict_df['CDA'+n+'_HVT']
+                    y2=y.get(len(y)+i)
+                    analog_2=333
+                    analog.append(analog_2)
+                    current.append(y2)
+                    CDA.append('CDA'+n+'_HVT')
+                    date_ls.append(running_time)
+                    CDA_output = pd.DataFrame({'time':date_ls,'CDA':CDA,'current':current,'model value':analog})
+                    if alarm_model == "s":
+                        ans = pd.merge(CDA_std,CDA_output)
+    					     #產出預警alarm call
+                        ans['alarm line'] = ans['model value']+s*ans['std']
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
+                    elif alarm_model =="h":
+                        ans = pd.merge(CDA_std,CDA_output)
+            				#產出預警alarm call
+                        hh=control[['CDA'+n+"_HVT_HH_value"]]
+                        ans['alarm line'] = ans['analog']+hh
+                        ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
                 file = 	"output\CDA_"+n+"_HVT_result.csv"
                 ans.to_csv(file,index = False)
     elif int(n) > 10 and int(n)< 15 :
@@ -459,13 +468,14 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT1_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    file = 	"output\CDA_"+n+"_LVT_result.csv"
-                    ans.to_csv(file,index = False)
+                file = 	"output\CDA_"+n+"_LVT_result.csv"
+                ans.to_csv(file,index = False)
 					
             elif predict_df.iloc[-10+j:,1].min() < 100:
                 #設定讀取的特徵
@@ -494,13 +504,14 @@ for n in n_list:
                     #產出預警alarm call
                     ans['alarm line'] = ans['model value']+s*ans['std']
                     ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                elif alarm_model =="hh":
+                elif alarm_model =="h":
                     ans = pd.merge(CDA_std,CDA_output)
                     #產出預警alarm call
+                    hh=control[['CDA'+n+"_LVT1_HH_value"]]
                     ans['alarm line'] = ans['model value']+hh
                     ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                file = 	"output\CDA_"+n+"_LVT_result.csv"
-                ans.to_csv(file,index = False)
+            file = 	"output\CDA_"+n+"_LVT_result.csv"
+            ans.to_csv(file,index = False)
 
     else:
         pr_model_lowV_1=joblib.load('CDA'+n+'_pr_model_LVT.pkl') 
@@ -533,18 +544,19 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT1_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    file = 	"output\CDA_"+n+"_LVT_result.csv"
-                    ans.to_csv(file,index = False)
-                    analog=[] #放預估值
-                    current=[]#放真實值
-                    date_ls=[]#放時間
-                    VT_ls=[]
-                    CDA=[]
+                file = 	"output\CDA_"+n+"_LVT_result.csv"
+                ans.to_csv(file,index = False)
+                analog=[] #放預估值
+                current=[]#放真實值
+                date_ls=[]#放時間
+                VT_ls=[]
+                CDA=[]
                 for i in range(-5,0,1):
                     #從倒數第5筆開始 #HVT
                     record_time=predict_df[["Date"]]
@@ -563,13 +575,14 @@ for n in n_list:
         					    #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
-        					#產出預警alarm call
+            				#產出預警alarm call
+                        hh=control[['CDA'+n+"_HVT_HH_value"]]
                         ans['alarm line'] = ans['analog']+hh
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    file = 	"output\CDA_"+n+"_HVT_result.csv"
-                    ans.to_csv(file,index = False)	
+                file = 	"output\CDA_"+n+"_HVT_result.csv"
+                ans.to_csv(file,index = False)	
     					
             elif predict_df.iloc[-10+j:,1].min() < 100:
                 #設定讀取的特徵
@@ -599,9 +612,10 @@ for n in n_list:
                         #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
                         #產出預警alarm call
+                        hh=control[['CDA'+n+"_LVT1_HH_value"]]
                         ans['alarm line'] = ans['model value']+hh
                         ans['alarm call']= np.where(ans['current']>ans['alarm line'],1,0)
                     file = 	"output\CDA_"+n+"_LVT_result.csv"
@@ -629,10 +643,11 @@ for n in n_list:
     					     #產出預警alarm call
                         ans['alarm line'] = ans['model value']+s*ans['std']
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    elif alarm_model =="hh":
+                    elif alarm_model =="h":
                         ans = pd.merge(CDA_std,CDA_output)
     					#產出預警alarm call
+                        hh=control[['CDA'+n+"_HVT_HH_value"]]
                         ans['alarm line'] = ans['analog']+hh
                         ans['alarm call']= np.where(ans['current']>ans['model value'],1,0)
-                    file = 	"output\CDA_"+n+"_HVT_result.csv"
-                    ans.to_csv(file,index = False)
+                file = 	"output\CDA_"+n+"_HVT_result.csv"
+                ans.to_csv(file,index = False)
