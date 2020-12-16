@@ -116,8 +116,8 @@ for n in n_list:
             pr_model_LVT_2.fit(X1_poly, y2)
             pr_model_HVT.fit(X1_poly,y3)
             #export model
-            joblib.dump(pr_model_LVT,'CDA'+n+'_pr_model_LVT_1.pkl')
-            joblib.dump(pr_model_LVT,'CDA'+n+'_pr_model_LVT_2.pkl')
+            joblib.dump(pr_model_LVT_1,'CDA'+n+'_pr_model_LVT_1.pkl')
+            joblib.dump(pr_model_LVT_2,'CDA'+n+'_pr_model_LVT_2.pkl')
             joblib.dump(pr_model_HVT,'CDA'+n+'_pr_model_HVT.pkl')
             #append std
             std_ls.append(std1)
